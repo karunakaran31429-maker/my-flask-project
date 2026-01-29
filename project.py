@@ -12,7 +12,7 @@ app = Flask(__name__)
 
 # --- CONFIGURATION ---
 # Using getenv allows the app to work on your laptop and a real server
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///todo_pro.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
