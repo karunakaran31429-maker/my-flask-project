@@ -6,23 +6,31 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 
+# ---------------- LOAD ENV ----------------
+
 load_dotenv()
 
-# ------------------ APP CONFIG ------------------
+# ---------------- APP CONFIG ----------------
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", "sqlite:///project.db")
+
+# Database URL from .env (fallback to sqlite)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
+    "DATABASE_URL",
+    "sqlite:///project.db"
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
-# ------------------ MODELS ------------------
+# ---------------- MODELS ----------------
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
+
     posts = db.relationship('Post', backref='author', lazy=True)
 
 
@@ -33,7 +41,18 @@ class Post(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
-# ------------------ AUTH ROUTES ------------------
+    # Centralized JSON conversion
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "title": self.title,
+            "body": self.body,
+            "author": self.author.username,
+            "user_id": self.user_id,
+            "created_at": self.created_at.strftime('%Y-%m-%d %H:%M')
+        }
+
+# ---------------- AUTH ROUTES ----------------
 
 @app.route('/signup', methods=['POST'])
 def signup():
@@ -51,9 +70,10 @@ def signup():
     if User.query.filter_by(username=username).first():
         return jsonify({"error": "User already exists"}), 400
 
-    hashed_pw = generate_password_hash(password)
-
-    user = User(username=username, password_hash=hashed_pw)
+    user = User(
+        username=username,
+        password_hash=generate_password_hash(password)
+    )
     db.session.add(user)
     db.session.commit()
 
@@ -72,11 +92,14 @@ def login():
     if not user or not check_password_hash(user.password_hash, data.get('password')):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    return jsonify({"message": "Login successful", "user_id": user.id}), 200
+    return jsonify({
+        "message": "Login successful",
+        "user_id": user.id
+    }), 200
 
-# ------------------ POST ROUTES ------------------
+# ---------------- POST ROUTES ----------------
 
-# CREATE POST
+# CREATE
 @app.route('/posts', methods=['POST'])
 def create_post():
     data = request.json
@@ -99,34 +122,17 @@ def create_post():
     db.session.add(post)
     db.session.commit()
 
-    return jsonify({
-        "id": post.id,
-        "title": post.title,
-        "body": post.body,
-        "author": user.username,
-        "created_at": post.created_at.strftime('%Y-%m-%d %H:%M')
-    }), 201
+    return jsonify(post.to_dict()), 201
 
 
-# READ ALL POSTS
+# READ ALL
 @app.route('/posts', methods=['GET'])
 def get_posts():
     posts = Post.query.all()
-    result = []
-
-    for p in posts:
-        result.append({
-            "id": p.id,
-            "title": p.title,
-            "body": p.body,
-            "author": p.author.username,
-            "created_at": p.created_at.strftime('%Y-%m-%d %H:%M')
-        })
-
-    return jsonify(result), 200
+    return jsonify([p.to_dict() for p in posts]), 200
 
 
-# UPDATE POST
+# UPDATE
 @app.route('/posts/<int:id>', methods=['PUT'])
 def update_post(id):
     post = Post.query.get_or_404(id)
@@ -142,10 +148,10 @@ def update_post(id):
     post.body = data.get('body', post.body)
 
     db.session.commit()
-    return jsonify({"message": "Post updated"}), 200
+    return jsonify(post.to_dict()), 200
 
 
-# DELETE POST
+# DELETE
 @app.route('/posts/<int:id>', methods=['DELETE'])
 def delete_post(id):
     post = Post.query.get_or_404(id)
@@ -159,27 +165,18 @@ def delete_post(id):
 
     db.session.delete(post)
     db.session.commit()
+
     return jsonify({"message": "Post deleted"}), 200
 
 
-# FILTER POSTS BY USER
+# FILTER BY USER
 @app.route('/users/<string:username>/posts', methods=['GET'])
 def get_user_posts(username):
     user = User.query.filter_by(username=username).first_or_404()
-    posts = []
-
-    for p in user.posts:
-        posts.append({
-            "id": p.id,
-            "title": p.title,
-            "body": p.body,
-            "created_at": p.created_at.strftime('%Y-%m-%d %H:%M')
-        })
-
-    return jsonify(posts), 200
+    return jsonify([p.to_dict() for p in user.posts]), 200
 
 
-# ------------------ RUN APP ------------------
+# ---------------- RUN APP ----------------
 
 if __name__ == '__main__':
     app.run(debug=True)
